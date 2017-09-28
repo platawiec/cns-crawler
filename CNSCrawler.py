@@ -8,7 +8,6 @@ from bs4 import BeautifulSoup
 from slackclient import SlackClient
 
 POLL_TIME_MINUTES = 30
-print("starting..")
 slack_client = SlackClient(os.environ.get("SLACK_BOT_TOKEN"))
 
 tool_dict = {"Elionix": 304,
@@ -19,17 +18,15 @@ clean_url = "http://clean.fas.harvard.edu"
 
 def check_tool_issues(tool_id):
 
-    soup = get_tool_soup(tool_id)
-    log_table = get_user_log(soup)
-    rows = soup.find_all("tr", {"class":"logsheet"}, recursive=True)
+    log_entries = get_tool_log(tool_id)
 
     nowdate = datetime.datetime.now()
     logmsgs = []
-    for row in rows:
-        if is_valid_entry(row):
-            logdate = get_entry_date(row)
-            if ((nowdate - logdate) <= datetime.timedelta(minutes=POLL_TIME_MINUTES)):
-                logmsgs.append(get_entry_msg(row))
+    for log_entry in log_entries:
+        if is_valid_entry(log_entry):
+            logdate = get_entry_date(log_entry)
+            if is_recent_msg(nowdate, logdate):
+                logmsgs.append(get_entry_msg(log_entry))
             else:
                 break
     issuemsg = get_user_issue(logmsgs)
@@ -37,6 +34,14 @@ def check_tool_issues(tool_id):
         return issuemsg
     else:
         return []
+
+def get_tool_log(tool_id):
+    soup = get_tool_soup(tool_id)
+    log_entries = soup.find_all("tr", {"class":"logsheet"}, recursive=True)
+    return log_entries
+
+def is_recent_msg(nowdate, logdate):
+    return ((nowdate - logdate) <= datetime.timedelta(minutes=POLL_TIME_MINUTES))
 
 def get_tool_soup(tool_id):
     with requests.Session() as session:
@@ -54,9 +59,6 @@ def get_tool_soup(tool_id):
 
         soup = BeautifulSoup(response.content)
     return soup
-
-def get_user_log(soup):
-    return soup.findChildren("table")[6]
 
 def is_valid_entry(row):
     cells = list(row.children)
@@ -94,7 +96,8 @@ def get_user_issue(logmsgs):
     return []
 
 def post_tool_issue(user_issue, tool_name):
-    tool_text = "Oh no! It looks like a user has reported an issue with the {}! Here's the latest log entry:\n\n>{}".format(tool_name, user_issue)
+    tool_text = """Oh no! It looks like a user has reported an issue with the {}!
+                   Here's the latest log entry:\n\n>{}""".format(tool_name, user_issue)
     slack_client.api_call(
             "chat.postMessage",
             channel="#cleanroom-related",
